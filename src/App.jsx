@@ -39,7 +39,7 @@ const RANK_BANDS = [
   {id: 'bottom', short: 'Bottom 5', min: 23, max: 27},
 ];
 
-const STEPS = ['Country', 'Prediction', 'Reveal', 'Evidence'];
+const STEPS = ['Country', 'Rank', 'Domains', 'Reveal', 'Evidence'];
 
 const SUBDOMAIN_LABELS = {
   'Respect fo Values- EU ': 'Respect for EU values',
@@ -62,7 +62,19 @@ const bandForRank = (rank) => RANK_BANDS.find((band) => rank >= band.min && rank
 const rankStrength = (rank) => (28 - rank) / 27;
 const percent = (value) => Math.round(value * 100);
 const subdomainLabel = (value) => SUBDOMAIN_LABELS[value] || value;
-
+const rankToBandId = (rank) => bandForRank(rank)?.id || 'middle';
+const hashString = (value) => [...value].reduce((hash, char) => ((hash << 5) - hash + char.charCodeAt(0)) | 0, 0);
+const comparisonCountries = (selectedCountry, domain) => DATA.countries
+  .filter((item) => item.code !== selectedCountry.code)
+  .map((item) => ({
+    country: item,
+    rank: item.domains[domain].rank,
+    order: Math.abs(hashString(`${selectedCountry.code}-${domain}-${item.code}`)),
+  }))
+  .sort((a, b) => a.order - b.order)
+  .slice(0, 5)
+  .concat([{country: selectedCountry, rank: selectedCountry.domains[domain].rank, selected: true}])
+  .sort((a, b) => a.rank - b.rank);
 function scoreBand(bandId, rank) {
   const band = RANK_BANDS.find((item) => item.id === bandId);
   const distance = rank < band.min ? band.min - rank : rank > band.max ? rank - band.max : 0;
@@ -103,20 +115,21 @@ function App() {
   const [countryCode, setCountryCode] = useState(null);
   const [overallGuess, setOverallGuess] = useState(14);
   const [predictions, setPredictions] = useState(() => Object.fromEntries(
-    DATA.domainOrder.map((domain) => [domain, 'middle']),
+    DATA.domainOrder.map((domain) => [domain, 14]),
   ));
+  const [currentDomainIndex, setCurrentDomainIndex] = useState(0);
   const [focusDomain, setFocusDomain] = useState(null);
   const [methodOpen, setMethodOpen] = useState(false);
 
   const selectedCountry = countryCode ? country(countryCode) : null;
-  const activeStep = screen === 'country' ? 0 : screen === 'predict' ? 1 : screen === 'reveal' ? 2 : 3;
+  const activeStep = screen === 'country' ? 0 : screen === 'overall' ? 1 : screen === 'predict' ? 2 : screen === 'reveal' ? 3 : 4;
   const results = useMemo(() => {
     if (!selectedCountry) return null;
     const overallPoints = Math.max(10, Math.round(100 - Math.abs(overallGuess - selectedCountry.composite.rank) * 3.85));
     const domains = DATA.domainOrder.map((domain) => ({
       domain,
-      points: scoreBand(predictions[domain], selectedCountry.domains[domain].rank),
-      error: Math.abs(midpoint(predictions[domain]) - selectedCountry.domains[domain].rank),
+      points: Math.max(10, Math.round(100 - Math.abs(predictions[domain] - selectedCountry.domains[domain].rank) * 4)),
+      error: Math.abs(predictions[domain] - selectedCountry.domains[domain].rank),
     }));
     const total = overallPoints + domains.reduce((sum, item) => sum + item.points, 0);
     return {overallPoints, domains, total, accuracy: Math.round((total / 700) * 100)};
@@ -128,9 +141,10 @@ function App() {
 
   const begin = () => {
     setOverallGuess(14);
-    setPredictions(Object.fromEntries(DATA.domainOrder.map((domain) => [domain, 'middle'])));
+    setPredictions(Object.fromEntries(DATA.domainOrder.map((domain) => [domain, 14])));
+    setCurrentDomainIndex(0);
     setFocusDomain(null);
-    setScreen('predict');
+    setScreen('overall');
   };
 
   const surprise = () => {
@@ -141,60 +155,84 @@ function App() {
   const reset = () => {
     setCountryCode(null);
     setFocusDomain(null);
+    setCurrentDomainIndex(0);
     setScreen('country');
   };
 
+  const activeScreenContent = (() => {
+    if (screen === 'country') {
+      return (
+        <CountryScreen
+          key="country"
+          countryCode={countryCode}
+          setCountryCode={setCountryCode}
+          selectedCountry={selectedCountry}
+          onSurprise={surprise}
+          onBegin={begin}
+        />
+      );
+    }
+    if (screen === 'overall' && selectedCountry) {
+      return (
+        <OverallScreen
+          key="overall"
+          selectedCountry={selectedCountry}
+          overallGuess={overallGuess}
+          setOverallGuess={setOverallGuess}
+          onBack={() => setScreen('country')}
+          onNext={() => setScreen('predict')}
+        />
+      );
+    }
+    if (screen === 'predict' && selectedCountry) {
+      return (
+        <PredictionScreen
+          key="predict"
+          selectedCountry={selectedCountry}
+          predictions={predictions}
+          setPredictions={setPredictions}
+          currentDomainIndex={currentDomainIndex}
+          setCurrentDomainIndex={setCurrentDomainIndex}
+          onBack={() => setScreen('overall')}
+          onCountry={() => setScreen('country')}
+          onReveal={() => { setFocusDomain(null); setScreen('reveal'); }}
+        />
+      );
+    }
+    if (screen === 'reveal' && selectedCountry) {
+      return (
+        <RevealScreen
+          key="reveal"
+          selectedCountry={selectedCountry}
+          overallGuess={overallGuess}
+          predictions={predictions}
+          results={results}
+          focusDomain={focusDomain}
+          setFocusDomain={setFocusDomain}
+          onEvidence={() => setScreen('evidence')}
+        />
+      );
+    }
+    if (screen === 'evidence' && selectedCountry && focusDomain) {
+      return (
+        <EvidenceScreen
+          key="evidence"
+          selectedCountry={selectedCountry}
+          domain={focusDomain}
+          accuracy={results.accuracy}
+          onBack={() => setScreen('reveal')}
+          onReset={reset}
+          onMethod={() => setMethodOpen(true)}
+        />
+      );
+    }
+    return null;
+  })();
   return (
     <div className="app-shell">
-      <Header activeStep={activeStep} score={screen === 'country' || screen === 'predict' ? null : results?.accuracy} onMethod={() => setMethodOpen(true)} />
+      <Header activeStep={activeStep} score={screen === 'country' || screen === 'overall' || screen === 'predict' ? null : results?.accuracy} onMethod={() => setMethodOpen(true)} />
       <main>
-        <AnimatePresence mode="wait">
-          {screen === 'country' && (
-            <CountryScreen
-              key="country"
-              countryCode={countryCode}
-              setCountryCode={setCountryCode}
-              selectedCountry={selectedCountry}
-              onSurprise={surprise}
-              onBegin={begin}
-            />
-          )}
-          {screen === 'predict' && selectedCountry && (
-            <PredictionScreen
-              key="predict"
-              selectedCountry={selectedCountry}
-              overallGuess={overallGuess}
-              setOverallGuess={setOverallGuess}
-              predictions={predictions}
-              setPredictions={setPredictions}
-              onBack={() => setScreen('country')}
-              onReveal={() => setScreen('reveal')}
-            />
-          )}
-          {screen === 'reveal' && selectedCountry && (
-            <RevealScreen
-              key="reveal"
-              selectedCountry={selectedCountry}
-              overallGuess={overallGuess}
-              predictions={predictions}
-              results={results}
-              focusDomain={focusDomain}
-              setFocusDomain={setFocusDomain}
-              onEvidence={() => setScreen('evidence')}
-            />
-          )}
-          {screen === 'evidence' && selectedCountry && focusDomain && (
-            <EvidenceScreen
-              key="evidence"
-              selectedCountry={selectedCountry}
-              domain={focusDomain}
-              accuracy={results.accuracy}
-              onBack={() => setScreen('reveal')}
-              onReset={reset}
-              onMethod={() => setMethodOpen(true)}
-            />
-          )}
-        </AnimatePresence>
+        <AnimatePresence mode="wait">{activeScreenContent}</AnimatePresence>
       </main>
       <AnimatePresence>{methodOpen && <MethodModal onClose={() => setMethodOpen(false)} />}</AnimatePresence>
     </div>
@@ -239,6 +277,25 @@ function Screen({children, className = ''}) {
   );
 }
 
+function EuropeMapBackdrop() {
+  return (
+    <div className="atlas-field" aria-hidden="true">
+      <span className="atlas-label north">Nordic edge</span>
+      <span className="atlas-label west">Atlantic</span>
+      <span className="atlas-label south">Mediterranean</span>
+      <span className="atlas-label east">Eastern member states</span>
+      <svg className="atlas-lines" viewBox="0 0 720 720">
+        <path d="M96 182C188 105 298 80 426 112c116 29 183 96 202 188" />
+        <path d="M92 352c92-51 186-72 282-62 108 11 190 56 246 133" />
+        <path d="M134 546c86-35 167-46 244-34 82 13 151 47 208 103" />
+        <path d="M220 116c-29 81-34 159-13 234 24 86 83 160 176 223" />
+        <path d="M390 92c-23 95-23 185 0 270 22 84 66 156 133 216" />
+        <path d="M552 153c-49 74-70 148-64 222 6 76 40 144 103 204" />
+      </svg>
+      <span className="atlas-title">EU27 selection field</span>
+    </div>
+  );
+}
 function CountryScreen({countryCode, setCountryCode, selectedCountry, onSurprise, onBegin}) {
   return (
     <Screen className="country-screen">
@@ -248,7 +305,7 @@ function CountryScreen({countryCode, setCountryCode, selectedCountry, onSurprise
         <p>Test what you expect against more than 150 Eurobarometer indicators.</p>
       </div>
       <div className="map-stage" aria-label="Choose an EU member state">
-        <div className="map-field" aria-hidden="true"><span>EU27</span></div>
+        <EuropeMapBackdrop />
         {DATA.countries.map((item) => {
           const [x, y] = COUNTRY_POSITIONS[item.code] || [50, 50];
           return (
@@ -281,70 +338,178 @@ function CountryScreen({countryCode, setCountryCode, selectedCountry, onSurprise
   );
 }
 
-function PredictionScreen({selectedCountry, overallGuess, setOverallGuess, predictions, setPredictions, onBack, onReveal}) {
+function OverallScreen({selectedCountry, overallGuess, setOverallGuess, onBack, onNext}) {
   return (
-    <Screen className="prediction-screen">
+    <Screen className="overall-screen">
       <div className="screen-toolbar">
         <button className="text-button" type="button" onClick={onBack}><ArrowLeft size={16} /> Country</button>
-        <span className="country-tag">{selectedCountry.code} / {selectedCountry.name}</span>
+        <span className="country-tag">{selectedCountry.code} / overall rank</span>
       </div>
-      <div className="screen-heading compact">
-        <p className="eyebrow">Your expectation</p>
-        <h1>Where do you think {selectedCountry.name} stands?</h1>
-        <p>Place its overall rank, then sketch the shape of its six-domain profile.</p>
-      </div>
-      <div className="overall-guess">
-        <div>
-          <small>Overall index rank</small>
-          <strong>#{overallGuess}</strong>
+      <div className="overall-stage">
+        <div className="screen-heading compact">
+          <p className="eyebrow">First instinct</p>
+          <h1>Place {selectedCountry.name} on the overall index.</h1>
+          <p>One quick baseline before the six domain rounds.</p>
         </div>
-        <input
-          type="range"
-          min="1"
-          max="27"
-          value={overallGuess}
-          aria-label="Predicted overall rank"
-          onChange={(event) => setOverallGuess(Number(event.target.value))}
-        />
-        <div className="range-labels"><span>#1 highest</span><span>#27 lowest</span></div>
-      </div>
-      <div className="profile-builder">
-        <div className="profile-scale" aria-hidden="true">
-          <span>Likely among the highest</span><span>Near the middle</span><span>Likely among the lowest</span>
+        <div className="overall-card">
+          <div className="rank-number">
+            <small>Your overall rank</small>
+            <strong>#{overallGuess}</strong>
+            <span>of 27 EU countries</span>
+          </div>
+          <input
+            type="range"
+            min="1"
+            max="27"
+            value={overallGuess}
+            aria-label="Predicted overall rank"
+            onChange={(event) => setOverallGuess(Number(event.target.value))}
+          />
+          <div className="range-labels"><span>#1 highest</span><span>#27 lowest</span></div>
+          <button className="primary-button seal" type="button" onClick={onNext}>Start domain rounds <ArrowRight size={18} /></button>
         </div>
-        {DATA.domainOrder.map((domain, index) => {
-          const meta = domainMeta(domain);
-          return (
-            <motion.div className="prediction-row" key={domain} initial={{opacity: 0, x: -14}} animate={{opacity: 1, x: 0}} transition={{delay: index * 0.045}}>
-              <div className="domain-label">
-                <i style={{background: meta.color}}>{meta.letter}</i>
-                <div><b>{DATA.domainDisplay[domain]}</b><span>{DATA.domainKeyQuestion[domain]}</span></div>
-              </div>
-              <div className="band-control" role="group" aria-label={`${DATA.domainDisplay[domain]} predicted rank`}>
-                {RANK_BANDS.map((band) => (
-                  <button
-                    key={band.id}
-                    type="button"
-                    className={predictions[domain] === band.id ? 'selected' : ''}
-                    aria-pressed={predictions[domain] === band.id}
-                    onClick={() => setPredictions((current) => ({...current, [domain]: band.id}))}
-                  >
-                    {band.short}
-                  </button>
-                ))}
-              </div>
-            </motion.div>
-          );
-        })}
-      </div>
-      <div className="sticky-action">
-        <span>Your profile is ready to test.</span>
-        <button className="primary-button seal" type="button" onClick={onReveal}>Reveal the data <ArrowRight size={18} /></button>
       </div>
     </Screen>
   );
 }
+function PredictionScreen({
+  selectedCountry,
+  predictions,
+  setPredictions,
+  currentDomainIndex,
+  setCurrentDomainIndex,
+  onBack,
+  onCountry,
+  onReveal,
+}) {
+  const domain = DATA.domainOrder[currentDomainIndex];
+  const meta = domainMeta(domain);
+  const deepDive = DATA.domainDeepDive[domain];
+  const selectedRank = predictions[domain];
+  const [checkedDomains, setCheckedDomains] = useState({});
+  const checked = Boolean(checkedDomains[domain]);
+  const details = selectedCountry.domains[domain];
+  const guessedBand = bandForRank(selectedRank);
+  const actualBand = bandForRank(details.rank);
+  const matched = guessedBand.id === actualBand.id;
+  const comparisons = comparisonCountries(selectedCountry, domain);
+  const isFirst = currentDomainIndex === 0;
+  const isLast = currentDomainIndex === DATA.domainOrder.length - 1;
+  const goNext = () => {
+    if (!checked) {
+      setCheckedDomains((current) => ({...current, [domain]: true}));
+      return;
+    }
+    if (isLast) {
+      onReveal();
+      return;
+    }
+    setCurrentDomainIndex((index) => index + 1);
+  };
 
+  return (
+    <Screen className="prediction-screen">
+      <div className="screen-toolbar">
+        <button className="text-button" type="button" onClick={onCountry}><ArrowLeft size={16} /> Country</button>
+        <span className="country-tag">{selectedCountry.code} / domain {currentDomainIndex + 1} of {DATA.domainOrder.length}</span>
+      </div>
+      <div className="domain-round-heading" style={{'--domain-color': meta.color}}>
+        <span className="domain-token">{meta.letter}</span>
+        <div>
+          <p className="eyebrow">Domain round</p>
+          <h1>{DATA.domainDisplay[domain]}</h1>
+          <p>{DATA.domainKeyQuestion[domain]}</p>
+        </div>
+      </div>
+      <div className="round-layout decision-first">
+        <section className="round-prediction primary">
+          <div className="single-band rank-slider-panel">
+            <small>Your prediction</small>
+            <h2>Where does {selectedCountry.name} rank here?</h2>
+            <div className="domain-rank-slider">
+              <strong>#{selectedRank}</strong>
+              <input
+                type="range"
+                min="1"
+                max="27"
+                value={selectedRank}
+                aria-label={`${DATA.domainDisplay[domain]} predicted rank`}
+                onChange={(event) => setPredictions((current) => ({...current, [domain]: Number(event.target.value)}))}
+              />
+              <div className="range-labels"><span>#1 highest</span><span>#27 lowest</span></div>
+              <span className="band-note">{guessedBand.short}</span>
+            </div>
+            <AnimatePresence mode="wait">
+              {checked && (
+                <motion.div
+                  className={`round-feedback ${matched ? 'match' : 'miss'}`}
+                  key={domain}
+                  initial={{opacity: 0, y: 10}}
+                  animate={{opacity: 1, y: 0}}
+                  exit={{opacity: 0, y: -8}}
+                  transition={{duration: 0.22}}
+                >
+                  <small>{matched ? 'Good read' : 'Data check'}</small>
+                  <strong>{selectedCountry.name} ranks #{details.rank}</strong>
+                  <p>You placed it at <b>#{selectedRank}</b>; the measured band is <b>{actualBand.short}</b>.</p>
+                  <div className="comparison-strip" aria-label="Comparison with five other countries">
+                    {comparisons.map((item) => (
+                      <div key={item.country.code} className={item.selected ? 'selected' : ''}>
+                        <span>{item.country.code}</span>
+                        <b>#{item.rank}</b>
+                      </div>
+                    ))}
+                  </div>
+                  <dl>
+                    <div><dt>Strongest subdomain</dt><dd>{subdomainLabel(details.topSubdomain)}</dd></div>
+                    <div><dt>Weakest subdomain</dt><dd>{subdomainLabel(details.bottomSubdomain)}</dd></div>
+                  </dl>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        </section>
+        <aside className="theory-panel compact" style={{'--domain-color': meta.color}}>
+          <small>Framework note</small>
+          <p>{DATA.domainShort[domain]}</p>
+          <details>
+            <summary>Open theory notes</summary>
+            <p>{deepDive.theory}</p>
+            <ul>
+              {deepDive.anchors.map((anchor) => <li key={anchor}>{anchor}</li>)}
+            </ul>
+          </details>
+        </aside>
+      </div>
+      <div className="round-progress" aria-label="Domain round progress">
+        {DATA.domainOrder.map((item, index) => (
+          <button
+            key={item}
+            type="button"
+            className={index === currentDomainIndex ? 'active' : index < currentDomainIndex ? 'done' : ''}
+            style={{'--domain-color': domainMeta(item).color}}
+            aria-label={`Go to ${DATA.domainDisplay[item]}`}
+            onClick={() => setCurrentDomainIndex(index)}
+          >
+            {domainMeta(item).letter}
+          </button>
+        ))}
+      </div>
+      <div className="sticky-action">
+        <button
+          className="text-button"
+          type="button"
+          onClick={() => (isFirst ? onBack() : setCurrentDomainIndex((index) => Math.max(0, index - 1)))}
+        >
+          <ArrowLeft size={16} /> {isFirst ? 'Overall rank' : 'Previous domain'}
+        </button>
+        <button className="primary-button seal" type="button" onClick={goNext}>
+          {!checked ? 'Check this domain' : isLast ? 'Reveal the profile' : 'Next domain'} <ArrowRight size={18} />
+        </button>
+      </div>
+    </Screen>
+  );
+}
 function ProfileRadar({selectedCountry, predictions}) {
   const size = 310;
   const center = size / 2;
@@ -365,7 +530,7 @@ function ProfileRadar({selectedCountry, predictions}) {
         return <g key={domain}><line x1={center} y1={center} x2={x} y2={y} className="radar-axis" /><text x={lx} y={ly}>{domainMeta(domain).letter}</text></g>;
       })}
       <motion.polygon
-        points={polygon((domain) => rankStrength(midpoint(predictions[domain])))}
+        points={polygon((domain) => rankStrength(predictions[domain]))}
         className="radar-predicted"
         initial={{opacity: 0}}
         animate={{opacity: 1}}
@@ -406,7 +571,7 @@ function RevealScreen({selectedCountry, overallGuess, predictions, results, focu
           {DATA.domainOrder.map((domain, index) => {
             const meta = domainMeta(domain);
             const actualRank = selectedCountry.domains[domain].rank;
-            const guessedBand = RANK_BANDS.find((band) => band.id === predictions[domain]);
+            const guessedBand = bandForRank(predictions[domain]);
             const selected = activeDomain === domain;
             return (
               <motion.button
@@ -419,7 +584,7 @@ function RevealScreen({selectedCountry, overallGuess, predictions, results, focu
                 transition={{delay: 0.25 + index * 0.055}}
               >
                 <span className="result-domain"><i style={{background: meta.color}}>{meta.letter}</i><b>{DATA.domainDisplay[domain]}</b></span>
-                <span>{guessedBand.short}</span>
+                <span>#{predictions[domain]}</span>
                 <span className={bandForRank(actualRank).id === guessedBand.id ? 'match' : ''}>#{actualRank}</span>
               </motion.button>
             );
