@@ -301,13 +301,31 @@ function App() {
         <AnimatePresence mode="wait">{activeScreenContent}</AnimatePresence>
       </main>
       <AnimatePresence>{methodOpen && <MethodModal onClose={() => setMethodOpen(false)} />}</AnimatePresence>
+      <footer className="site-footer">
+        <EUFlag />
+        <p>
+          This game is inspired by the <a href="https://www.co3socialcontract.eu/" target="_blank" rel="noreferrer">CO3 — Continuous Construction of Resilient Social Contracts</a> project (grant no. 101132631), supported by the European Union&rsquo;s Horizon Europe programme.
+        </p>
+      </footer>
       <a className="feedback-fab" href={FEEDBACK_URL} target="_blank" rel="noreferrer">
         <MessageCircle size={16} /> <span>Feedback</span>
       </a>
-      <a className="co3-badge" href="https://www.co3socialcontract.eu/" target="_blank" rel="noreferrer">
-        <ExternalLink size={14} /> <span>Part of the CO3 project</span>
-      </a>
     </div>
+  );
+}
+
+function EUFlag() {
+  const stars = Array.from({length: 12}, (_, i) => {
+    const a = ((i * 30 - 90) * Math.PI) / 180;
+    return {x: 12 + 7 * Math.cos(a), y: 8 + 7 * Math.sin(a)};
+  });
+  return (
+    <svg viewBox="0 0 24 16" className="eu-flag" role="img" aria-label="European Union flag">
+      <rect width="24" height="16" fill="#003399" />
+      {stars.map((s, i) => (
+        <text key={i} x={s.x} y={s.y} fontSize="3" fill="#FFCC00" textAnchor="middle" dominantBaseline="middle">★</text>
+      ))}
+    </svg>
   );
 }
 
@@ -413,23 +431,43 @@ function IntroScreen({onBegin}) {
         <span>co3socialcontract.eu <ExternalLink size={13} /></span>
       </a>
       <div className="domain-preview-grid">
-        {DATA.domainOrder.map((domain) => {
-          const meta = domainMeta(domain);
-          return (
-            <div key={domain} className="domain-preview-card" style={{'--domain-color': meta.color}}>
-              <span className="domain-token small">{meta.letter}</span>
-              <div>
-                <b>{DATA.domainDisplay[domain]}</b>
-                <p>{DATA.domainShort[domain]}</p>
-              </div>
-            </div>
-          );
-        })}
+        {DATA.domainOrder.map((domain) => <DomainPreviewCard key={domain} domain={domain} />)}
       </div>
       <button className="primary-button seal" type="button" onClick={onBegin}>
         Choose your country <ArrowRight size={18} />
       </button>
     </Screen>
+  );
+}
+function DomainPreviewCard({domain}) {
+  const [flipped, setFlipped] = useState(false);
+  const meta = domainMeta(domain);
+  const deepDive = DATA.domainDeepDive[domain];
+  return (
+    <button
+      type="button"
+      className={`domain-preview-card ${flipped ? 'flipped' : ''}`}
+      style={{'--domain-color': meta.color}}
+      onClick={() => setFlipped((f) => !f)}
+      aria-label={`${DATA.domainDisplay[domain]} — ${flipped ? 'show overview' : 'show theory'}`}
+    >
+      <div className="flip-inner">
+        <div className="flip-face flip-front">
+          <span className="domain-token small">{meta.letter}</span>
+          <div>
+            <b>{DATA.domainDisplay[domain]}</b>
+            <p>{DATA.domainShort[domain]}</p>
+          </div>
+          <span className="flip-hint">Tap for theory</span>
+        </div>
+        <div className="flip-face flip-back">
+          <span className="domain-token small">{meta.letter}</span>
+          <p className="fb-question">{DATA.domainKeyQuestion[domain]}</p>
+          <p className="fb-theory">{deepDive.theory}</p>
+          <ul>{deepDive.anchors.map((anchor) => <li key={anchor}>{anchor}</li>)}</ul>
+        </div>
+      </div>
+    </button>
   );
 }
 function CountryScreen({countryCode, setCountryCode, selectedCountry, onSurprise, onBegin}) {
