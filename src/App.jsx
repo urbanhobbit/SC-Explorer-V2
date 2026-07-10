@@ -1,17 +1,21 @@
 import {useEffect, useMemo, useState} from 'react';
 import {AnimatePresence, motion} from 'framer-motion';
+import {ComposableMap, Geographies, Geography, Marker} from 'react-simple-maps';
 import {
   ArrowLeft,
   ArrowRight,
   BarChart3,
   BookOpen,
+  Check,
   ExternalLink,
   Info,
+  MessageCircle,
   RotateCcw,
   Shuffle,
   X,
 } from 'lucide-react';
 import DATA from './data/gameData.json';
+import worldTopology from 'world-atlas/countries-110m.json';
 
 const DOMAIN_META = {
   Citizenship: {letter: 'C', color: '#1769aa'},
@@ -22,13 +26,20 @@ const DOMAIN_META = {
   'Resilience to Crises': {letter: 'X', color: '#177985'},
 };
 
-const COUNTRY_POSITIONS = {
-  IE: [14, 42], PT: [9, 78], ES: [17, 78], FR: [25, 57], BE: [31, 45],
-  NL: [32, 37], LU: [33, 50], DE: [41, 47], DK: [43, 28], SE: [54, 18],
-  FI: [69, 15], EE: [70, 30], LV: [70, 38], LT: [69, 46], PL: [56, 48],
-  CZ: [47, 53], AT: [45, 62], SI: [47, 70], HR: [52, 75], IT: [39, 79],
-  MT: [44, 94], SK: [55, 58], HU: [56, 66], RO: [66, 72], BG: [68, 82],
-  EL: [62, 92], CY: [79, 94],
+const COUNTRY_COORDS = {
+  IE: [-8.0, 53.3], PT: [-8.2, 39.6], ES: [-3.7, 40.3], FR: [2.4, 46.6], BE: [4.5, 50.6],
+  NL: [5.3, 52.2], LU: [6.1, 49.75], DE: [10.3, 51.2], DK: [10.0, 56.1], SE: [16.5, 62.0],
+  FI: [26.0, 64.5], EE: [25.5, 58.7], LV: [24.7, 56.9], LT: [23.9, 55.2], PL: [19.4, 52.1],
+  CZ: [15.4, 49.9], AT: [14.4, 47.5], SI: [14.8, 46.1], HR: [16.0, 45.3], IT: [12.6, 42.9],
+  MT: [14.4, 35.95], SK: [19.5, 48.7], HU: [19.4, 47.2], RO: [24.9, 45.9], BG: [25.3, 42.7],
+  EL: [22.0, 39.2], CY: [33.3, 35.1],
+};
+
+const EU27_NUMERIC_TO_CODE = {
+  40: 'AT', 56: 'BE', 100: 'BG', 191: 'HR', 196: 'CY', 203: 'CZ', 208: 'DK', 233: 'EE',
+  246: 'FI', 250: 'FR', 276: 'DE', 300: 'EL', 348: 'HU', 372: 'IE', 380: 'IT', 428: 'LV',
+  440: 'LT', 442: 'LU', 470: 'MT', 528: 'NL', 616: 'PL', 620: 'PT', 642: 'RO', 703: 'SK',
+  705: 'SI', 724: 'ES', 752: 'SE',
 };
 
 const RANK_BANDS = [
@@ -40,6 +51,10 @@ const RANK_BANDS = [
 ];
 
 const STEPS = ['Country', 'Rank', 'Domains', 'Reveal', 'Evidence'];
+
+const FEEDBACK_URL = 'https://github.com/urbanhobbit/SC-Explorer-V2/issues/new?'
+  + `title=${encodeURIComponent('Prototype feedback')}`
+  + `&body=${encodeURIComponent('What did you try?\n\nWhat felt unclear or broken?\n\nWhat would make the game better?')}`;
 
 const SUBDOMAIN_LABELS = {
   'Respect fo Values- EU ': 'Respect for EU values',
@@ -110,40 +125,79 @@ function evidenceFor(selectedCountry, domain) {
     .slice(0, 3);
 }
 
+const SESSION_KEY = 'sc-explorer-session-v1';
+const SCREENS = ['intro', 'country', 'overall', 'predict', 'reveal', 'evidence'];
+
+function loadSession() {
+  try {
+    const raw = localStorage.getItem(SESSION_KEY);
+    if (!raw) return null;
+    const session = JSON.parse(raw);
+    if (!session || !SCREENS.includes(session.screen)) return null;
+    if (session.countryCode && !country(session.countryCode)) return null;
+    return session;
+  } catch {
+    return null;
+  }
+}
+
+const initialSession = loadSession();
+
 function App() {
-  const [screen, setScreen] = useState('country');
-  const [countryCode, setCountryCode] = useState(null);
-  const [overallGuess, setOverallGuess] = useState(14);
-  const [predictions, setPredictions] = useState(() => Object.fromEntries(
+  const [screen, setScreen] = useState(initialSession?.screen || 'intro');
+  const [countryCode, setCountryCode] = useState(initialSession?.countryCode || null);
+  const [overallGuess, setOverallGuess] = useState(initialSession?.overallGuess ?? 14);
+  const [predictions, setPredictions] = useState(() => initialSession?.predictions || Object.fromEntries(
     DATA.domainOrder.map((domain) => [domain, 14]),
   ));
-  const [currentDomainIndex, setCurrentDomainIndex] = useState(0);
-  const [focusDomain, setFocusDomain] = useState(null);
+  const [currentDomainIndex, setCurrentDomainIndex] = useState(initialSession?.currentDomainIndex || 0);
+  const [focusDomain, setFocusDomain] = useState(initialSession?.focusDomain || null);
+  const [visitedDomains, setVisitedDomains] = useState(initialSession?.visitedDomains || []);
+  const [comparisonPicks, setComparisonPicks] = useState(() => initialSession?.comparisonPicks || {});
   const [methodOpen, setMethodOpen] = useState(false);
 
   const selectedCountry = countryCode ? country(countryCode) : null;
-  const activeStep = screen === 'country' ? 0 : screen === 'overall' ? 1 : screen === 'predict' ? 2 : screen === 'reveal' ? 3 : 4;
+  const activeStep = screen === 'intro' ? -1 : screen === 'country' ? 0 : screen === 'overall' ? 1 : screen === 'predict' ? 2 : screen === 'reveal' ? 3 : 4;
   const results = useMemo(() => {
     if (!selectedCountry) return null;
     const overallPoints = Math.max(10, Math.round(100 - Math.abs(overallGuess - selectedCountry.composite.rank) * 3.85));
-    const domains = DATA.domainOrder.map((domain) => ({
-      domain,
-      points: Math.max(10, Math.round(100 - Math.abs(predictions[domain] - selectedCountry.domains[domain].rank) * 4)),
-      error: Math.abs(predictions[domain] - selectedCountry.domains[domain].rank),
-    }));
-    const total = overallPoints + domains.reduce((sum, item) => sum + item.points, 0);
-    return {overallPoints, domains, total, accuracy: Math.round((total / 700) * 100)};
-  }, [overallGuess, predictions, selectedCountry]);
+    const domains = DATA.domainOrder.map((domain) => {
+      const comparisonWinner = comparisonCountries(selectedCountry, domain)[0].country.code;
+      const pick = comparisonPicks[domain];
+      const comparisonPoints = !pick ? 0 : pick === comparisonWinner ? 100 : 25;
+      return {
+        domain,
+        points: Math.max(10, Math.round(100 - Math.abs(predictions[domain] - selectedCountry.domains[domain].rank) * 4)),
+        error: Math.abs(predictions[domain] - selectedCountry.domains[domain].rank),
+        comparisonPoints,
+        comparisonCorrect: pick ? pick === comparisonWinner : null,
+      };
+    });
+    const total = overallPoints + domains.reduce((sum, item) => sum + item.points + item.comparisonPoints, 0);
+    return {overallPoints, domains, total, accuracy: Math.round((total / 1300) * 100)};
+  }, [overallGuess, predictions, comparisonPicks, selectedCountry]);
 
   useEffect(() => {
     window.scrollTo({top: 0, behavior: 'instant'});
   }, [screen]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(SESSION_KEY, JSON.stringify({
+        screen, countryCode, overallGuess, predictions, currentDomainIndex, focusDomain, visitedDomains, comparisonPicks,
+      }));
+    } catch {
+      // storage unavailable (private mode / quota) — session simply won't resume
+    }
+  }, [screen, countryCode, overallGuess, predictions, currentDomainIndex, focusDomain, visitedDomains, comparisonPicks]);
 
   const begin = () => {
     setOverallGuess(14);
     setPredictions(Object.fromEntries(DATA.domainOrder.map((domain) => [domain, 14])));
     setCurrentDomainIndex(0);
     setFocusDomain(null);
+    setVisitedDomains([]);
+    setComparisonPicks({});
     setScreen('overall');
   };
 
@@ -156,10 +210,19 @@ function App() {
     setCountryCode(null);
     setFocusDomain(null);
     setCurrentDomainIndex(0);
+    setVisitedDomains([]);
+    setComparisonPicks({});
     setScreen('country');
   };
 
+  const markVisited = (domain) => setVisitedDomains((current) => (
+    current.includes(domain) ? current : [...current, domain]
+  ));
+
   const activeScreenContent = (() => {
+    if (screen === 'intro') {
+      return <IntroScreen key="intro" onBegin={() => setScreen('country')} />;
+    }
     if (screen === 'country') {
       return (
         <CountryScreen
@@ -191,6 +254,8 @@ function App() {
           selectedCountry={selectedCountry}
           predictions={predictions}
           setPredictions={setPredictions}
+          comparisonPicks={comparisonPicks}
+          setComparisonPicks={setComparisonPicks}
           currentDomainIndex={currentDomainIndex}
           setCurrentDomainIndex={setCurrentDomainIndex}
           onBack={() => setScreen('overall')}
@@ -209,7 +274,8 @@ function App() {
           results={results}
           focusDomain={focusDomain}
           setFocusDomain={setFocusDomain}
-          onEvidence={() => setScreen('evidence')}
+          visitedDomains={visitedDomains}
+          onEvidence={(domain) => { markVisited(domain); setScreen('evidence'); }}
         />
       );
     }
@@ -230,22 +296,25 @@ function App() {
   })();
   return (
     <div className="app-shell">
-      <Header activeStep={activeStep} score={screen === 'country' || screen === 'overall' || screen === 'predict' ? null : results?.accuracy} onMethod={() => setMethodOpen(true)} />
+      <Header activeStep={activeStep} score={screen === 'intro' || screen === 'country' || screen === 'overall' || screen === 'predict' ? null : results?.accuracy} onMethod={() => setMethodOpen(true)} onHome={() => setScreen('intro')} />
       <main>
         <AnimatePresence mode="wait">{activeScreenContent}</AnimatePresence>
       </main>
       <AnimatePresence>{methodOpen && <MethodModal onClose={() => setMethodOpen(false)} />}</AnimatePresence>
+      <a className="feedback-fab" href={FEEDBACK_URL} target="_blank" rel="noreferrer">
+        <MessageCircle size={16} /> <span>Feedback</span>
+      </a>
     </div>
   );
 }
 
-function Header({activeStep, score, onMethod}) {
+function Header({activeStep, score, onMethod, onHome}) {
   return (
     <header className="site-header">
-      <div className="brand-lockup">
+      <button className="brand-lockup" type="button" onClick={onHome} aria-label="Back to start">
         <span className="brand-mark">SC</span>
         <div><b>Social Contract</b><span>Explorer</span></div>
-      </div>
+      </button>
       <nav className="step-nav" aria-label="Game progress">
         {STEPS.map((step, index) => (
           <span key={step} className={index === activeStep ? 'active' : index < activeStep ? 'done' : ''}>
@@ -277,23 +346,82 @@ function Screen({children, className = ''}) {
   );
 }
 
-function EuropeMapBackdrop() {
+function EuropeMap({countryCode, setCountryCode}) {
   return (
-    <div className="atlas-field" aria-hidden="true">
-      <span className="atlas-label north">Nordic edge</span>
-      <span className="atlas-label west">Atlantic</span>
-      <span className="atlas-label south">Mediterranean</span>
-      <span className="atlas-label east">Eastern member states</span>
-      <svg className="atlas-lines" viewBox="0 0 720 720">
-        <path d="M96 182C188 105 298 80 426 112c116 29 183 96 202 188" />
-        <path d="M92 352c92-51 186-72 282-62 108 11 190 56 246 133" />
-        <path d="M134 546c86-35 167-46 244-34 82 13 151 47 208 103" />
-        <path d="M220 116c-29 81-34 159-13 234 24 86 83 160 176 223" />
-        <path d="M390 92c-23 95-23 185 0 270 22 84 66 156 133 216" />
-        <path d="M552 153c-49 74-70 148-64 222 6 76 40 144 103 204" />
-      </svg>
-      <span className="atlas-title">EU27 selection field</span>
-    </div>
+    <ComposableMap
+      className="atlas-svg"
+      projection="geoMercator"
+      projectionConfig={{scale: 700, center: [15, 53]}}
+      width={700}
+      height={650}
+      role="img"
+      aria-hidden="true"
+    >
+      <Geographies geography={worldTopology}>
+        {({geographies}) => geographies.map((geo) => {
+          const isMember = Boolean(EU27_NUMERIC_TO_CODE[Number(geo.id)]);
+          return (
+            <Geography
+              key={geo.rsmKey}
+              geography={geo}
+              className={isMember ? 'atlas-country member' : 'atlas-country'}
+              tabIndex={-1}
+            />
+          );
+        })}
+      </Geographies>
+      {DATA.countries.map((item) => {
+        const coordinates = COUNTRY_COORDS[item.code];
+        if (!coordinates) return null;
+        return (
+          <Marker key={item.code} coordinates={coordinates}>
+            <foreignObject x={-16} y={-13} width={32} height={26} style={{overflow: 'visible'}}>
+              <div xmlns="http://www.w3.org/1999/xhtml" className="marker-host">
+                <button
+                  type="button"
+                  className={`country-point ${countryCode === item.code ? 'selected' : ''}`}
+                  title={item.name}
+                  aria-label={item.name}
+                  aria-pressed={countryCode === item.code}
+                  onClick={() => setCountryCode(item.code)}
+                >
+                  {item.code}
+                </button>
+              </div>
+            </foreignObject>
+          </Marker>
+        );
+      })}
+    </ComposableMap>
+  );
+}
+function IntroScreen({onBegin}) {
+  return (
+    <Screen className="intro-screen">
+      <div className="screen-heading intro-heading">
+        <p className="eyebrow">CO3 project</p>
+        <h1>What holds a society together?</h1>
+        <p>A social contract is the bargain that makes political life possible: citizens accept rules, taxes, rights and duties, and public authority, while expecting protection, voice, fairness, recognition and mutual responsibility in return.</p>
+        <p>This explorer turns that bargain into six measurable domains, built from more than 150 Eurobarometer indicators across the EU27.</p>
+      </div>
+      <div className="domain-preview-grid">
+        {DATA.domainOrder.map((domain) => {
+          const meta = domainMeta(domain);
+          return (
+            <div key={domain} className="domain-preview-card" style={{'--domain-color': meta.color}}>
+              <span className="domain-token small">{meta.letter}</span>
+              <div>
+                <b>{DATA.domainDisplay[domain]}</b>
+                <p>{DATA.domainShort[domain]}</p>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      <button className="primary-button seal" type="button" onClick={onBegin}>
+        Choose your country <ArrowRight size={18} />
+      </button>
+    </Screen>
   );
 }
 function CountryScreen({countryCode, setCountryCode, selectedCountry, onSurprise, onBegin}) {
@@ -305,24 +433,7 @@ function CountryScreen({countryCode, setCountryCode, selectedCountry, onSurprise
         <p>Test what you expect against more than 150 Eurobarometer indicators.</p>
       </div>
       <div className="map-stage" aria-label="Choose an EU member state">
-        <EuropeMapBackdrop />
-        {DATA.countries.map((item) => {
-          const [x, y] = COUNTRY_POSITIONS[item.code] || [50, 50];
-          return (
-            <button
-              key={item.code}
-              type="button"
-              className={`country-point ${countryCode === item.code ? 'selected' : ''}`}
-              style={{'--x': `${x}%`, '--y': `${y}%`}}
-              title={item.name}
-              aria-label={item.name}
-              aria-pressed={countryCode === item.code}
-              onClick={() => setCountryCode(item.code)}
-            >
-              {item.code}
-            </button>
-          );
-        })}
+        <EuropeMap countryCode={countryCode} setCountryCode={setCountryCode} />
       </div>
       <div className="country-dock">
         <div className="selected-country" aria-live="polite">
@@ -376,6 +487,8 @@ function PredictionScreen({
   selectedCountry,
   predictions,
   setPredictions,
+  comparisonPicks,
+  setComparisonPicks,
   currentDomainIndex,
   setCurrentDomainIndex,
   onBack,
@@ -393,6 +506,10 @@ function PredictionScreen({
   const actualBand = bandForRank(details.rank);
   const matched = guessedBand.id === actualBand.id;
   const comparisons = comparisonCountries(selectedCountry, domain);
+  const comparisonWinner = comparisons[0];
+  const comparisonPick = comparisonPicks[domain];
+  const comparisonRevealed = Boolean(comparisonPick);
+  const comparisonMatched = comparisonPick === comparisonWinner.country.code;
   const isFirst = currentDomainIndex === 0;
   const isLast = currentDomainIndex === DATA.domainOrder.length - 1;
   const goNext = () => {
@@ -400,6 +517,7 @@ function PredictionScreen({
       setCheckedDomains((current) => ({...current, [domain]: true}));
       return;
     }
+    if (!comparisonRevealed) return;
     if (isLast) {
       onReveal();
       return;
@@ -452,13 +570,35 @@ function PredictionScreen({
                   <small>{matched ? 'Good read' : 'Data check'}</small>
                   <strong>{selectedCountry.name} ranks #{details.rank}</strong>
                   <p>You placed it at <b>#{selectedRank}</b>; the measured band is <b>{actualBand.short}</b>.</p>
-                  <div className="comparison-strip" aria-label="Comparison with five other countries">
-                    {comparisons.map((item) => (
-                      <div key={item.country.code} className={item.selected ? 'selected' : ''}>
-                        <span>{item.country.code}</span>
-                        <b>#{item.rank}</b>
-                      </div>
-                    ))}
+                  <div className="comparison-round">
+                    <p className="comparison-prompt">Which of these six has the <b>highest</b> score here?</p>
+                    <div className="comparison-strip" aria-label="Guess the highest score among six countries">
+                      {comparisons.map((item) => {
+                        const isWinner = item.country.code === comparisonWinner.country.code;
+                        const isPick = comparisonPick === item.country.code;
+                        return (
+                          <button
+                            type="button"
+                            key={item.country.code}
+                            disabled={comparisonRevealed}
+                            className={[
+                              item.selected ? 'selected' : '',
+                              comparisonRevealed && isWinner ? 'winner' : '',
+                              comparisonRevealed && isPick && !isWinner ? 'missed' : '',
+                            ].filter(Boolean).join(' ')}
+                            onClick={() => setComparisonPicks((current) => ({...current, [domain]: item.country.code}))}
+                          >
+                            <span>{item.country.code}</span>
+                            <b>{comparisonRevealed ? `#${item.rank}` : '?'}</b>
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {comparisonRevealed && (
+                      <p className={`comparison-result ${comparisonMatched ? 'match' : 'miss'}`}>
+                        {comparisonMatched ? 'Correct read.' : `${comparisonWinner.country.name} scores highest here.`}
+                      </p>
+                    )}
                   </div>
                   <dl>
                     <div><dt>Strongest subdomain</dt><dd>{subdomainLabel(details.topSubdomain)}</dd></div>
@@ -503,8 +643,8 @@ function PredictionScreen({
         >
           <ArrowLeft size={16} /> {isFirst ? 'Overall rank' : 'Previous domain'}
         </button>
-        <button className="primary-button seal" type="button" onClick={goNext}>
-          {!checked ? 'Check this domain' : isLast ? 'Reveal the profile' : 'Next domain'} <ArrowRight size={18} />
+        <button className="primary-button seal" type="button" disabled={checked && !comparisonRevealed} onClick={goNext}>
+          {!checked ? 'Check this domain' : !comparisonRevealed ? 'Guess the highest score above' : isLast ? 'Reveal the profile' : 'Next domain'} <ArrowRight size={18} />
         </button>
       </div>
     </Screen>
@@ -547,7 +687,7 @@ function ProfileRadar({selectedCountry, predictions}) {
   );
 }
 
-function RevealScreen({selectedCountry, overallGuess, predictions, results, focusDomain, setFocusDomain, onEvidence}) {
+function RevealScreen({selectedCountry, overallGuess, predictions, results, focusDomain, setFocusDomain, visitedDomains, onEvidence}) {
   const suggested = [...results.domains].sort((a, b) => b.error - a.error)[0].domain;
   const activeDomain = focusDomain || suggested;
   return (
@@ -578,12 +718,16 @@ function RevealScreen({selectedCountry, overallGuess, predictions, results, focu
                 type="button"
                 className={`result-row ${selected ? 'selected' : ''}`}
                 key={domain}
-                onClick={() => setFocusDomain(domain)}
+                onClick={() => { setFocusDomain(domain); onEvidence(domain); }}
                 initial={{opacity: 0, y: 8}}
                 animate={{opacity: 1, y: 0}}
                 transition={{delay: 0.25 + index * 0.055}}
               >
-                <span className="result-domain"><i style={{background: meta.color}}>{meta.letter}</i><b>{DATA.domainDisplay[domain]}</b></span>
+                <span className="result-domain">
+                  <i style={{background: meta.color}}>{meta.letter}</i>
+                  <b>{DATA.domainDisplay[domain]}</b>
+                  {visitedDomains.includes(domain) && <Check size={14} className="visited-mark" aria-label="Evidence reviewed" />}
+                </span>
                 <span>#{predictions[domain]}</span>
                 <span className={bandForRank(actualRank).id === guessedBand.id ? 'match' : ''}>#{actualRank}</span>
               </motion.button>
@@ -592,8 +736,11 @@ function RevealScreen({selectedCountry, overallGuess, predictions, results, focu
         </div>
       </div>
       <div className="surprise-prompt">
-        <div><small>Choose one finding to investigate</small><b>{DATA.domainDisplay[activeDomain]}</b></div>
-        <button className="primary-button" type="button" onClick={() => { setFocusDomain(activeDomain); onEvidence(); }}>
+        <div>
+          <small>{visitedDomains.length === 0 ? 'Choose one finding to investigate' : `${visitedDomains.length} of ${DATA.domainOrder.length} domains reviewed`}</small>
+          <b>{DATA.domainDisplay[activeDomain]}</b>
+        </div>
+        <button className="primary-button" type="button" onClick={() => { setFocusDomain(activeDomain); onEvidence(activeDomain); }}>
           See the evidence <BarChart3 size={18} />
         </button>
       </div>
