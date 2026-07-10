@@ -304,6 +304,9 @@ function App() {
       <a className="feedback-fab" href={FEEDBACK_URL} target="_blank" rel="noreferrer">
         <MessageCircle size={16} /> <span>Feedback</span>
       </a>
+      <a className="co3-badge" href="https://www.co3socialcontract.eu/" target="_blank" rel="noreferrer">
+        <ExternalLink size={14} /> <span>Part of the CO3 project</span>
+      </a>
     </div>
   );
 }
@@ -404,6 +407,11 @@ function IntroScreen({onBegin}) {
         <p>A social contract is the bargain that makes political life possible: citizens accept rules, taxes, rights and duties, and public authority, while expecting protection, voice, fairness, recognition and mutual responsibility in return.</p>
         <p>This explorer turns that bargain into six measurable domains, built from more than 150 Eurobarometer indicators across the EU27.</p>
       </div>
+      <a className="co3-note" href="https://www.co3socialcontract.eu/" target="_blank" rel="noreferrer">
+        <b>What is CO3?</b>
+        <p>CO3 is a Horizon Europe research project studying resilient social contracts for democratic societies across Europe. This explorer is one of its public tools.</p>
+        <span>co3socialcontract.eu <ExternalLink size={13} /></span>
+      </a>
       <div className="domain-preview-grid">
         {DATA.domainOrder.map((domain) => {
           const meta = domainMeta(domain);

@@ -88,8 +88,15 @@ main { min-height: calc(100vh - 74px); }
 .feedback-fab { position: fixed; right: 22px; bottom: 22px; z-index: 40; display: inline-flex; align-items: center; gap: 8px; padding: 11px 16px; background: var(--navy); color: #fff; border-radius: 999px; text-decoration: none; font-size: 12px; font-weight: 700; box-shadow: 0 6px 18px rgba(16,29,39,0.25); }
 .feedback-fab:hover { background: var(--navy-dark); }
 
+.co3-badge { position: fixed; left: 22px; bottom: 22px; z-index: 40; display: inline-flex; align-items: center; gap: 8px; padding: 11px 16px; background: var(--surface); color: var(--ink-soft); border: 1px solid var(--line-strong); border-radius: 999px; text-decoration: none; font-size: 12px; font-weight: 600; box-shadow: 0 6px 18px rgba(16,29,39,0.1); }
+.co3-badge:hover { color: var(--ink); border-color: var(--ink-faint); }
+
 .intro-heading { max-width: 820px; margin-bottom: 8px; }
 .intro-heading p:last-child { margin-top: 14px; }
+.co3-note { display: block; max-width: 560px; margin: 26px 0 0; padding: 16px 18px; background: var(--surface); border: 1px solid var(--line); border-left: 3px solid var(--seal); border-radius: var(--radius); text-decoration: none; color: inherit; }
+.co3-note b { display: block; font: 600 14px var(--font-display); margin-bottom: 6px; color: var(--ink); }
+.co3-note p { margin: 0; color: var(--ink-soft); font-size: 12.5px; line-height: 1.6; }
+.co3-note span { display: inline-flex; align-items: center; gap: 5px; margin-top: 10px; color: var(--seal); font: 500 11px var(--font-mono); text-transform: uppercase; letter-spacing: 0.05em; }
 .domain-preview-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin: 36px 0 40px; }
 .domain-preview-card { display: grid; grid-template-columns: auto 1fr; gap: 14px; align-items: start; padding: 18px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); border-top: 3px solid var(--domain-color); }
 .domain-preview-card b { display: block; font: 600 15px var(--font-display); margin-bottom: 5px; }
@@ -326,6 +333,8 @@ main { min-height: calc(100vh - 74px); }
 @media (max-width: 760px) {
   .feedback-fab span { display: none; }
   .feedback-fab { padding: 12px; border-radius: 50%; }
+  .co3-badge span { display: none; }
+  .co3-badge { padding: 12px; border-radius: 50%; }
   .domain-preview-grid { grid-template-columns: 1fr; }
   .site-header { min-height: 64px; padding: 10px 16px; }
   .brand-lockup b { font-size: 15px; }
