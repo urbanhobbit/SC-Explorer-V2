@@ -394,22 +394,26 @@ function EuropeMap({countryCode, setCountryCode}) {
       {DATA.countries.map((item) => {
         const coordinates = COUNTRY_COORDS[item.code];
         if (!coordinates) return null;
+        const isSelected = countryCode === item.code;
         return (
           <Marker key={item.code} coordinates={coordinates}>
-            <foreignObject x={-16} y={-13} width={32} height={26} style={{overflow: 'visible'}}>
-              <div xmlns="http://www.w3.org/1999/xhtml" className="marker-host">
-                <button
-                  type="button"
-                  className={`country-point ${countryCode === item.code ? 'selected' : ''}`}
-                  title={item.name}
-                  aria-label={item.name}
-                  aria-pressed={countryCode === item.code}
-                  onClick={() => setCountryCode(item.code)}
-                >
-                  {item.code}
-                </button>
-              </div>
-            </foreignObject>
+            <g
+              className={`country-point ${isSelected ? 'selected' : ''}`}
+              role="button"
+              tabIndex={0}
+              aria-label={item.name}
+              aria-pressed={isSelected}
+              onClick={() => setCountryCode(item.code)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault();
+                  setCountryCode(item.code);
+                }
+              }}
+            >
+              <rect x={-16} y={-13} width={32} height={26} rx={13} />
+              <text textAnchor="middle" dominantBaseline="central">{item.code}</text>
+            </g>
           </Marker>
         );
       })}

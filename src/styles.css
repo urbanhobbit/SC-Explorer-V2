@@ -126,13 +126,17 @@ main { min-height: calc(100vh - 74px); }
 .country-heading { align-self: center; }
 .country-heading h1 { max-width: 650px; }
 .map-stage { height: min(650px, calc(100vh - 158px)); min-height: 500px; position: relative; overflow: hidden; border-left: 1px solid var(--line); background: linear-gradient(180deg, #e7ece9 0%, #dce4e2 100%); display: grid; place-items: center; }
-.atlas-svg { width: 100%; height: 100%; }
+.atlas-svg { width: 100%; height: 100%; touch-action: manipulation; }
 .atlas-country { fill: #d6dcd8; stroke: #b8c2bd; stroke-width: 0.6; outline: none; }
 .atlas-country.member { fill: #c3ccc6; stroke: #9aa6a0; }
-.marker-host { width: 100%; height: 100%; }
-.country-point { position: static; z-index: 2; width: 100%; height: 100%; border: 1px solid var(--line-strong); border-radius: 13px; background: rgba(251,251,248,0.94); color: var(--ink-soft); font: 500 9.5px var(--font-mono); cursor: pointer; transition: transform 150ms ease, border-color 150ms ease, background 150ms ease; }
-.country-point:hover { transform: scale(1.12); border-color: var(--navy); color: var(--navy); }
-.country-point.selected { background: var(--seal); border-color: var(--seal); color: #fff; box-shadow: 0 0 0 5px rgba(163,58,70,0.15); transform: scale(1.12); }
+.country-point { cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.country-point rect { fill: rgba(251,251,248,0.94); stroke: var(--line-strong); stroke-width: 1; transition: transform 150ms ease, stroke 150ms ease, fill 150ms ease; transform-box: fill-box; transform-origin: center; }
+.country-point text { fill: var(--ink-soft); font: 500 9.5px var(--font-mono); pointer-events: none; user-select: none; }
+.country-point:hover rect, .country-point:focus-visible rect { transform: scale(1.12); stroke: var(--navy); }
+.country-point:hover text, .country-point:focus-visible text { fill: var(--navy); }
+.country-point.selected rect { fill: var(--seal); stroke: var(--seal); transform: scale(1.12); }
+.country-point.selected text { fill: #fff; }
+.country-point:focus-visible { outline: none; }
 .country-dock { grid-column: 1 / -1; min-height: 78px; display: grid; grid-template-columns: 1fr auto auto; align-items: center; gap: 24px; border-top: 1px solid var(--line-strong); border-bottom: 1px solid var(--line-strong); padding: 14px 0; }
 .selected-country { display: flex; align-items: center; gap: 13px; min-width: 0; }
 .selected-country > span { width: 46px; height: 46px; flex: 0 0 auto; display: grid; place-items: center; color: var(--seal); border: 1px solid var(--seal); font: 500 13px var(--font-mono); }
